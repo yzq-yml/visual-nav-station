@@ -1,0 +1,21 @@
+device_id: firefly-155-155-0-14
+host: 155.155.0.14
+username: firefly
+ros:
+  master_uri: http://155.155.0.14:11311
+  topics:
+    rgb: /veye_camera/image_raw/compressed
+    infrared: /airui_ir_camera/image_raw/compressed
+    imu: /imu/data
+    range: /sfa1500c_tof_high/range
+    fcu_gps: /mavros/global_position/global
+    algorithm_gps: /geovins_gps
+positioning:
+  serial_device: /dev/ttyUSB0
+  baudrate: 115200
+assets:
+  remote_root: /home/firefly/results/maps
+algorithm:
+  workspace: /home/firefly/estimators/geovins_qingdao_ws
+  launch: subscribe_veye_km220.launch
+  config: 1.260810_veye_km220
