@@ -296,7 +296,7 @@ class Metric(QFrame):
         self.value = QLabel(value); self.value.setObjectName("metricValue")
         self.accent = accent
         if table_row:
-            label.setFixedWidth(64)
+            label.setFixedWidth(54)
             self.value.setWordWrap(True)
             self.value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             layout.addWidget(label); layout.addWidget(self.value, 1)
@@ -332,6 +332,10 @@ class MapPanel(QFrame):
         self.fcu_path = []; self.algo_path = []; self.last_fcu = None; self.last_algo = None
         self.last_telemetry = None
         self.follow_gps = True
+        self.pan_center = None
+        self.drag_position = None
+        self.rendered_center = None
+        self.source_per_pixel = (1.0, 1.0)
         self.large_window = None
         self.demo_coordinates = False
         # Keep the original gps_map_node-style fixed 800x800 source ROI.
@@ -346,19 +350,45 @@ class MapPanel(QFrame):
         self.zoom_in_button = QPushButton("+"); self.zoom_in_button.setToolTip("放大飞行区域"); self.zoom_in_button.setFixedSize(32, 28); self.zoom_in_button.clicked.connect(self.zoom_in)
         head.addWidget(self.zoom_out_button); head.addWidget(self.zoom_reset_button); head.addWidget(self.zoom_in_button); head.addWidget(QLabel("BASEMAP • DSM"))
         self.view = QLabel("MAP VIEW\n\n        ·  ·  ·\n   ·  ?  ·\n        ·  ·  ·\n\nWAITING FOR ROS GPS")
+        self.view.setCursor(Qt.OpenHandCursor)
+        self.view.setToolTip("按住鼠标左键拖动地图，滚轮缩放；点击跟随 GPS 恢复跟随")
         self.view.installEventFilter(self); self.view.setAlignment(Qt.AlignCenter); self.view.setObjectName("mapView"); self.view.setMinimumSize(320, 300); self.view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         layout.addLayout(head); layout.addWidget(self.view, 1)
 
     def eventFilter(self, watched, event):
-        if watched is self.view and event.type() == QEvent.Wheel:
-            if event.angleDelta().y() > 0: self.zoom_in()
-            elif event.angleDelta().y() < 0: self.zoom_out()
-            event.accept()
-            return True
+        if watched is self.view:
+            if event.type() == QEvent.Wheel:
+                if event.angleDelta().y() > 0: self.zoom_in()
+                elif event.angleDelta().y() < 0: self.zoom_out()
+                event.accept()
+                return True
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton and self.map_image is not None:
+                self.drag_position = event.pos()
+                self.view.setCursor(Qt.ClosedHandCursor)
+                return True
+            if event.type() == QEvent.MouseMove and self.drag_position is not None and event.buttons() & Qt.LeftButton:
+                delta = event.pos() - self.drag_position
+                self.drag_position = event.pos()
+                if delta.isNull(): return True
+                center = self.rendered_center or (self.map_image.shape[1]/2, self.map_image.shape[0]/2)
+                self.pan_center = (center[0] - delta.x()*self.source_per_pixel[0],
+                                   center[1] - delta.y()*self.source_per_pixel[1])
+                self.follow_gps = False
+                self.follow_button.setChecked(False)
+                self.follow_button.setText("固定视图")
+                self.render_map()
+                return True
+            if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                self.drag_position = None
+                self.view.setCursor(Qt.OpenHandCursor)
+                return True
         return super().eventFilter(watched, event)
 
     def toggle_follow(self, enabled: bool) -> None:
-        self.follow_gps = enabled; self.follow_button.setText("跟随 GPS" if enabled else "固定视图"); self.render_map()
+        self.follow_gps = enabled
+        if not enabled: self.pan_center = self.rendered_center
+        self.follow_button.setText("跟随 GPS" if enabled else "固定视图")
+        self.render_map()
 
     def open_large(self) -> None:
         if self.large_window is None:
@@ -382,6 +412,7 @@ class MapPanel(QFrame):
                 self.map_transform = dataset.transform * Affine.scale(dataset.width / out_w, dataset.height / out_h)
                 self.map_crs = dataset.crs
             self.fcu_path.clear(); self.algo_path.clear(); self.last_fcu = None; self.last_algo = None
+            self.pan_center = None; self.drag_position = None
             self.render_map()
             crs = str(self.map_crs) if self.map_crs else "无 CRS"
             return True, f"{Path(path).name} · {out_w}×{out_h} · {crs}"
@@ -420,7 +451,7 @@ class MapPanel(QFrame):
         if len(self.fcu_path) > 1: cv2.polylines(image, [np.asarray(self.fcu_path, np.int32)], False, (255, 0, 0), 3)
         if self.algo_path: cv2.circle(image, self.algo_path[-1], 7, (0, 255, 0), -1)
         if self.fcu_path: cv2.circle(image, self.fcu_path[-1], 7, (0, 255, 255), -1)
-        center = (self.algo_path[-1] if self.algo_path else (self.fcu_path[-1] if self.fcu_path else (image.shape[1] // 2, image.shape[0] // 2))) if self.follow_gps else (image.shape[1] // 2, image.shape[0] // 2)
+        center = (self.algo_path[-1] if self.algo_path else (self.fcu_path[-1] if self.fcu_path else (image.shape[1] // 2, image.shape[0] // 2))) if self.follow_gps else (self.pan_center or (image.shape[1] // 2, image.shape[0] // 2))
         # Crop an in-bounds ROI matching the widget aspect ratio. The widget
         # keeps its fixed size; only the visible source area changes with zoom.
         map_h, map_w = image.shape[:2]
@@ -433,6 +464,8 @@ class MapPanel(QFrame):
             roi_h = min(map_h, max(2, int(roi_w / aspect)))
         cx = min(max(int(center[0]), roi_w // 2), map_w - (roi_w - roi_w // 2))
         cy = min(max(int(center[1]), roi_h // 2), map_h - (roi_h - roi_h // 2))
+        self.rendered_center = (cx, cy)
+        if not self.follow_gps: self.pan_center = self.rendered_center
         x0, y0 = cx - roi_w // 2, cy - roi_h // 2
         crop = image[y0:y0 + roi_h, x0:x0 + roi_w]
         image = crop
@@ -442,7 +475,9 @@ class MapPanel(QFrame):
             cv2.putText(image, f"GPS error: {error:.2f} m", (18, 34), cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 255, 255), 2)
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB); h, w, ch = rgb.shape
         pix = QPixmap.fromImage(QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy())
-        self.view.setPixmap(pix.scaled(self.view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        displayed = pix.scaled(self.view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.source_per_pixel = (roi_w / max(1, displayed.width()), roi_h / max(1, displayed.height()))
+        self.view.setPixmap(displayed)
         if self.large_window is not None and self.large_window.isVisible():
             self.large_view.setPixmap(pix.scaled(self.large_view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
@@ -453,6 +488,7 @@ class MapPanel(QFrame):
         self.zoom = max(0.1, self.zoom / 1.35); self.render_map()
 
     def zoom_reset(self) -> None:
+        self.pan_center = None
         self.zoom = min(800 / self.map_image.shape[0], 800 * self.view.width() / max(1, self.view.height()) / self.map_image.shape[1]) if self.map_image is not None else 1.0; self.render_map()
 
     @staticmethod
@@ -524,7 +560,7 @@ class MainPage(QWidget):
         overlay.setAttribute(Qt.WA_TranslucentBackground)
         box = QVBoxLayout(overlay); box.setContentsMargins(18, 58, 18, 18)
         self.telemetry_table = QFrame(); self.telemetry_table.setObjectName("telemetryTable")
-        self.telemetry_table.setFixedWidth(400)
+        self.telemetry_table.setFixedWidth(310)
         table = QVBoxLayout(self.telemetry_table)
         table.setContentsMargins(0, 0, 0, 0); table.setSpacing(0)
         self.att = Metric("姿态信息", table_row=True)
@@ -789,7 +825,7 @@ class MainWindow(QMainWindow):
             self.sim_started = time.monotonic()
             self.sim_frame = 0
             m = self.pages[0].map
-            keys = ("map_image", "map_transform", "map_crs", "fcu_path", "algo_path", "last_fcu", "last_algo", "last_telemetry", "zoom", "follow_gps", "demo_coordinates")
+            keys = ("map_image", "map_transform", "map_crs", "fcu_path", "algo_path", "last_fcu", "last_algo", "last_telemetry", "zoom", "follow_gps", "demo_coordinates", "pan_center")
             self.saved_map = {key: getattr(m, key) for key in keys}
             # A generated terrain works on fresh clones without GeoTIFF or ROS.
             rng = np.random.default_rng(42)
@@ -823,6 +859,7 @@ class MainWindow(QMainWindow):
             self.sim_timer.stop(); self.simulating = False
             m = self.pages[0].map
             for key, value in self.saved_map.items(): setattr(m, key, value)
+            m.drag_position = None; m.view.setCursor(Qt.OpenHandCursor)
             m.follow_button.setChecked(m.follow_gps)
             m.follow_button.setText("跟随 GPS" if m.follow_gps else "固定视图")
             m.view.clear()
