@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Callable
 
 try:
-    from PyQt5.QtCore import QObject, QTimer, Qt, QEvent, pyqtSignal, QLibraryInfo
-    from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPixmap
+    from PyQt5.QtCore import QObject, QTimer, Qt, QEvent, QPointF, QRectF, pyqtSignal, QLibraryInfo
+    from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPixmap, QPolygonF, QPen
     from PyQt5.QtWidgets import (
         QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
         QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -469,14 +469,28 @@ class MapPanel(QFrame):
         x0, y0 = cx - roi_w // 2, cy - roi_h // 2
         crop = image[y0:y0 + roi_h, x0:x0 + roi_w]
         image = crop
-        cv2.putText(image, "FCU: blue/yellow  ALGO: red/green", (18, image.shape[0]-18), cv2.FONT_HERSHEY_SIMPLEX, .55, (255, 255, 255), 2)
-        if t and t.fcu_gps_valid and t.algo_gps_valid:
-            error = self.haversine(t.fcu_lat, t.fcu_lon, t.algo_lat, t.algo_lon)
-            cv2.putText(image, f"GPS error: {error:.2f} m", (18, 34), cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 255, 255), 2)
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB); h, w, ch = rgb.shape
         pix = QPixmap.fromImage(QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy())
         displayed = pix.scaled(self.view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.source_per_pixel = (roi_w / max(1, displayed.width()), roi_h / max(1, displayed.height()))
+        # Screen-space annotation stays small and anchored while zooming/panning.
+        painter = QPainter(displayed)
+        painter.setRenderHint(QPainter.Antialiasing)
+        font = painter.font(); font.setPixelSize(12); painter.setFont(font)
+        painter.setPen(Qt.NoPen); painter.setBrush(QColor(255, 255, 255, 205))
+        bottom = displayed.height() - 12
+        painter.drawRoundedRect(QRectF(10, bottom-48, 280, 48), 6, 6)
+        painter.setPen(QColor("#18222c"))
+        error_text = "GPS error: --"
+        if t and t.fcu_gps_valid and t.algo_gps_valid:
+            timestamps = t.received or {}
+            fresh = all(time.monotonic()-timestamps.get(key, 0) < 3 for key in ("gps", "algorithm"))
+            if fresh:
+                error = self.haversine(t.fcu_lat, t.fcu_lon, t.algo_lat, t.algo_lon)
+                error_text = f"GPS error: {error:.2f} m"
+        painter.drawText(20, bottom-29, error_text)
+        painter.drawText(20, bottom-11, "FCU: blue/yellow   ALGO: red/green")
+        painter.end()
         self.view.setPixmap(displayed)
         if self.large_window is not None and self.large_window.isVisible():
             self.large_view.setPixmap(pix.scaled(self.large_view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
@@ -546,6 +560,58 @@ class PageBase(EmblemBackground, QWidget):
         self.body = QVBoxLayout(); self.body.setSpacing(14); layout.addLayout(self.body); layout.addStretch()
 
 
+class AircraftAttitude(QFrame):
+    """Small projected aircraft, driven by the same Euler angles as telemetry."""
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("metric")
+        self.setFixedSize(170, 120)
+        self.angles = (0.0, 0.0, 0.0)
+        self.valid = False
+        # Body coordinates: forward, right, down. Faces form wings/body/tail.
+        self.faces = [
+            [(1.15,0,0), (-.8,-.13,0), (-.8,.13,0)],
+            [(.35,0,0), (-.3,-1,0), (-.5,-1,0), (-.3,0,0)],
+            [(.35,0,0), (-.3,1,0), (-.5,1,0), (-.3,0,0)],
+            [(-.55,0,0), (-.9,-.43,0), (-1,-.43,0), (-.85,0,0)],
+            [(-.55,0,0), (-.9,.43,0), (-1,.43,0), (-.85,0,0)],
+            [(-.5,0,0), (-.9,0,-.4), (-1,0,0)],
+        ]
+
+    def set_attitude(self, roll, pitch, yaw, valid):
+        self.valid = valid and all(math.isfinite(v) for v in (roll, pitch, yaw))
+        self.angles = (roll, pitch, yaw) if self.valid else (0, 0, 0)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
+        font = painter.font(); font.setPixelSize(10); painter.setFont(font)
+        painter.setPen(QColor("#465364"))
+        painter.drawText(QRectF(0, 7, self.width(), 16), Qt.AlignCenter, "实时姿态" if self.valid else "等待姿态数据")
+        painter.translate(self.width()/2, 73)
+        painter.setPen(QPen(QColor(120,140,160,90), 1))
+        painter.drawEllipse(QRectF(-58,-28,116,56))
+        painter.drawLine(-66,0,66,0)
+        roll, pitch, yaw = [math.radians(v) for v in self.angles]
+        cr,sr,cp,sp,cy,sy = math.cos(roll),math.sin(roll),math.cos(pitch),math.sin(pitch),math.cos(yaw),math.sin(yaw)
+        rotation = np.array([[cy*cp,cy*sp*sr-sy*cr,cy*sp*cr+sy*sr],
+                             [sy*cp,sy*sp*sr+cy*cr,sy*sp*cr-cy*sr],
+                             [-sp,cp*sr,cp*cr]])
+        faces = [np.asarray(face) @ rotation.T for face in self.faces]
+        faces.sort(key=lambda face: float(np.mean(face[:,0]*.8+face[:,2]*.55)))
+        for face in faces:
+            polygon = QPolygonF([QPointF(float(y*46), float((-x*.55+z*.8)*46)) for x,y,z in face])
+            painter.setBrush(QColor("#c5deef" if self.valid else "#d3d8de"))
+            painter.setPen(QPen(QColor("#375d7a" if self.valid else "#87929c"), 1.2))
+            painter.drawPolygon(polygon)
+        # A contrasting nose makes heading easy to identify.
+        nose = rotation @ np.array([1.15,0,0])
+        painter.setPen(Qt.NoPen); painter.setBrush(QColor("#e88549" if self.valid else "#a1a8b0"))
+        painter.drawEllipse(QPointF(float(nose[1]*46),float((-nose[0]*.55+nose[2]*.8)*46)), 3, 3)
+        painter.end()
+
+
 class MainPage(QWidget):
     def __init__(self, device, stop_all_callback=None):
         super().__init__()
@@ -570,7 +636,11 @@ class MainPage(QWidget):
         for panel in (self.att, self.fcu, self.sensor, self.speed):
             panel.setFixedHeight(100)
             table.addWidget(panel)
-        box.addWidget(self.telemetry_table, 0, Qt.AlignRight)
+        right_group = QHBoxLayout(); right_group.addStretch(); right_group.setSpacing(10)
+        self.aircraft = AircraftAttitude()
+        right_group.addWidget(self.aircraft, 0, Qt.AlignTop)
+        right_group.addWidget(self.telemetry_table, 0, Qt.AlignTop)
+        box.addLayout(right_group)
         box.addStretch()
         # Only the actual panels intercept input; empty overlay passes wheel events.
         overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -609,6 +679,7 @@ class MainPage(QWidget):
         t = self.last; now = time.monotonic(); received = t.received or {}
         def live(key): return (self.device.connected or t.simulated) and now - received.get(key, 0) < 3
         def status(key): return "在线" if live(key) else "无数据 / 超时"
+        self.aircraft.set_attitude(t.roll, t.pitch, t.yaw, live("imu"))
         self.att.set_value(f"R {t.roll:+.1f}°  P {t.pitch:+.1f}°\nY {t.yaw:.1f}°" if live("imu") else "等待姿态数据")
         fcu = f"{t.fcu_lat:.6f}, {t.fcu_lon:.6f}" if live("gps") and t.fcu_gps_valid else "等待有效定位"
         algo = f"{t.algo_lat:.6f}, {t.algo_lon:.6f}" if live("algorithm") and t.algo_gps_valid else "等待有效定位"
