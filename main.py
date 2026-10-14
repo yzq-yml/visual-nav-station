@@ -292,7 +292,7 @@ class Metric(QFrame):
         layout = QVBoxLayout(self); layout.setContentsMargins(14, 11, 14, 11)
         label = QLabel(title.upper()); label.setObjectName("metricTitle")
         self.value = QLabel(value); self.value.setObjectName("metricValue")
-        self.value.setStyleSheet(f"color:{accent};")
+        self.accent = accent
         layout.addWidget(label); layout.addWidget(self.value)
 
     def set_value(self, value: str) -> None:
@@ -464,7 +464,7 @@ class SparkMetric(Metric):
     def push(self, value: float) -> None:
         self.history.append(float(value)); self.history = self.history[-50:]
         if len(self.history) < 2: return
-        pix = QPixmap(260, 58); pix.fill(QColor("#0a1421")); painter = QPainter(pix); painter.setRenderHint(QPainter.Antialiasing); painter.setPen(QColor(self.value.styleSheet().replace("color:", "").replace(";", "")))
+        pix = QPixmap(260, 58); pix.fill(QColor("#0a1421")); painter = QPainter(pix); painter.setRenderHint(QPainter.Antialiasing); painter.setPen(QColor(self.accent))
         lo, hi = min(self.history), max(self.history); span = hi - lo or 1.0; points = []
         for i, item in enumerate(self.history): points.append((int(i * 258 / max(1, len(self.history)-1)), int(54 - (item-lo) / span * 48)))
         for a, b in zip(points, points[1:]): painter.drawLine(a[0], a[1], b[0], b[1])
@@ -513,7 +513,7 @@ class MainPage(QWidget):
         overlay.setAttribute(Qt.WA_TranslucentBackground)
         box = QVBoxLayout(overlay); box.setContentsMargins(18, 58, 18, 18)
         self.att = Metric("姿态 · ROLL / PITCH / YAW")
-        self.att.setFixedWidth(340)
+        self.att.setFixedWidth(300)
         box.addWidget(self.att, 0, Qt.AlignRight)
         box.addStretch()
         panels = QHBoxLayout()
@@ -521,7 +521,7 @@ class MainPage(QWidget):
         self.sensor = Metric("传感器状态")
         self.speed = Metric("飞行信息")
         for panel in (self.fcu, self.sensor, self.speed):
-            panel.setFixedHeight(148); panel.value.setStyleSheet("color:#75e4ff;font-size:13px;")
+            panel.setFixedHeight(112)
             panels.addWidget(panel)
         box.addLayout(panels)
         # Only the actual panels intercept input; empty overlay passes wheel events.
@@ -750,7 +750,7 @@ class MainWindow(QMainWindow):
     def _build(self) -> None:
         root = QWidget(); self.setCentralWidget(root); layout = QHBoxLayout(root); layout.setContentsMargins(0, 0, 0, 0)
         nav = QFrame(); nav.setObjectName("sidebar"); nav.setFixedWidth(210); nv = QVBoxLayout(nav); brand = QLabel("NAV//STATION\nV2.0"); brand.setObjectName("brand"); nv.addWidget(brand)
-        self.theme_name, self.language = "blue", "zh"
+        self.theme_name, self.language = "light", "zh"
         self.connection = QPushButton("●  CONNECT SSH"); self.connection.clicked.connect(self.toggle_connection); nv.addWidget(self.connection); self.roscore_button = QPushButton("▶  START ROSCORE"); self.roscore_button.clicked.connect(self.start_roscore); nv.addWidget(self.roscore_button); self.nav = QListWidget(); self.nav.setObjectName("nav"); self.nav_labels = ["00  MISSION CONTROL", "01  SENSOR LAB", "02  MAP & ASSETS", "03  POSITIONING", "04  LINK DIAGNOSTICS"]; labels = self.nav_labels
         for label in labels: self.nav.addItem(QListWidgetItem(label))
         self.nav.setCurrentRow(0); nv.addWidget(self.nav); nv.addStretch(); self.system = QLabel("SYSTEM READY\n等待连接真实设备"); self.system.setObjectName("muted"); nv.addWidget(self.system); self.settings_button = QPushButton("⚙  SETTINGS / 设置"); self.settings_button.clicked.connect(self.open_settings); nv.addWidget(self.settings_button); layout.addWidget(nav)
@@ -825,7 +825,7 @@ class MainWindow(QMainWindow):
         self.log_view.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {message}")
 
 
-def apply_theme(app: QApplication, theme: str = "dark") -> None:
+def apply_theme(app: QApplication, theme: str = "light") -> None:
     palettes = {"dark": ("#0b111c", "#0e1725", "#101b2a", "#0d1826", "#61dcff"), "light": ("#eef2f6", "#ffffff", "#ffffff", "#f7f9fb", "#16769b"), "blue": ("#071a2d", "#08243d", "#0d2d49", "#0a2238", "#55c8ff")}
     bg, sidebar, panel, field, accent = palettes.get(theme, palettes["dark"])
     app.setStyleSheet(f"""
@@ -843,15 +843,57 @@ def apply_theme(app: QApplication, theme: str = "dark") -> None:
     #spark {{ background:#0a1421; border:1px solid #1d415b; }} #mapTitle {{ font-size:14px; font-weight:600; }}
     """)
 
+    if theme == "light":
+        app.setStyleSheet(app.styleSheet() + """
+        * { color:#171b21; font-size:12px; }
+        QMainWindow, QWidget { background:#ffffff; }
+        QLabel, #missionOverlay, #missionTools { background:transparent; }
+        #sidebar { background:#fafbfc; border-right:1px solid #e5e7eb; }
+        #brand { color:#20262e; font-size:15px; font-weight:600; padding:16px 8px; }
+        #nav { background:transparent; }
+        #nav::item { color:#555e69; padding:12px 8px; }
+        #nav::item:selected { color:#111827; background:#edf1f5; border-left:2px solid #7d95aa; }
+        QPushButton { color:#20262e; background:rgba(255,255,255,210);
+            border:1px solid #d6dce3; border-radius:6px; padding:5px 9px; }
+        QPushButton:hover { background:#edf4fa; border-color:#98b5cc; }
+        QPushButton:pressed, QPushButton:checked { background:#e3edf6; }
+        QPushButton:disabled { color:#a0a6ae; background:#f5f6f8; border-color:#e7eaee; }
+        #primary { background:#edf4fa; color:#20262e; border-color:#b9cddd; }
+        #panel { background:#ffffff; border:1px solid #e0e5eb; border-radius:8px; }
+        #metric {
+            background:qlineargradient(x1:0,y1:0,x2:0.8,y2:1,
+                stop:0 rgba(255,255,255,195), stop:0.48 rgba(255,255,255,140),
+                stop:1 rgba(235,244,250,165));
+            border:1px solid rgba(255,255,255,225); border-radius:12px;
+        }
+        #metricTitle { color:#414a54; font-size:10px; font-weight:400; }
+        #metricValue { color:#111820; font-size:12px; font-weight:400; }
+        #muted { color:#6c7580; font-size:10px; }
+        #pageTitle { color:#181e26; font-size:21px; font-weight:500; }
+        #mapTitle { color:#374151; font-size:12px; font-weight:500; }
+        #mapView, #image { background:#f0f3f6; border:1px solid #e0e5eb; color:#66717e; }
+        QTableWidget, QPlainTextEdit, QLineEdit, QComboBox {
+            color:#20262e; background:rgba(255,255,255,220);
+            border:1px solid #dfe4ea; selection-background-color:#dcebf6;
+            selection-color:#111827; padding:6px;
+        }
+        QHeaderView::section { color:#414a54; background:#f2f4f7; padding:7px; }
+        QStatusBar, #log { color:#56616d; background:#f8fafb; border:0; font-size:10px; }
+        #terminal { color:#20262e; background:#f8fafb; border:1px solid #dfe4ea; font-size:11px; }
+        #spark { background:#f2f4f7; border:1px solid #dfe4ea; }
+        QScrollBar { background:#f3f5f7; }
+        QScrollBar::handle { background:#c7cfd8; border-radius:3px; min-height:24px; }
+        """)
+
 
 def main() -> int:
     """Application entry point used by both the CLI and packaged executable."""
     app = QApplication(sys.argv)
     app.setApplicationName("NAV//STATION")
     app.setOrganizationName("VisualNav")
-    apply_theme(app, "blue")
+    apply_theme(app, "light")
     window = MainWindow()
-    window.apply_settings("blue", "zh")
+    window.apply_settings("light", "zh")
     window.setWindowTitle("NAV//STATION V2.0 · 视觉导航地面站")
     window.show()
     return app.exec_()
