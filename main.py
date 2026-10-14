@@ -1073,11 +1073,11 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
         QMainWindow, QWidget { background:#ffffff; }
         QLabel, #missionOverlay, #missionTools { background:transparent; }
         #sidebar { background:#fafbfc; border-right:1px solid #e5e7eb; }
-        #brand { color:#20262e; font-size:15px; font-weight:600; padding:16px 8px; }
-        #nav { background:transparent; }
-        #nav::item { color:#555e69; padding:12px 8px; }
+        #brand { color:#101820; font-size:15px; font-weight:800; padding:16px 8px; }
+        #nav { background:transparent; font-weight:700; }
+        #nav::item { color:#18222e; padding:12px 8px; }
         #nav::item:selected { color:#111827; background:#edf1f5; border-left:2px solid #7d95aa; }
-        QPushButton { color:#20262e; background:rgba(255,255,255,210);
+        QPushButton { color:#101820; font-weight:700; background:rgba(255,255,255,210);
             border:1px solid #d6dce3; border-radius:6px; padding:5px 9px; }
         QPushButton:hover { background:#edf4fa; border-color:#98b5cc; }
         QPushButton:pressed, QPushButton:checked { background:#e3edf6; }
@@ -1093,9 +1093,9 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
         #telemetryRow { background:transparent; border:0; border-bottom:1px solid rgba(100,120,140,55); border-radius:0; }
         #metricTitle { color:#414a54; font-size:10px; font-weight:600; }
         #metricValue { color:#111820; font-size:12px; font-weight:700; }
-        #muted { color:#6c7580; font-size:10px; }
-        #pageTitle { color:#181e26; font-size:21px; font-weight:500; }
-        #mapTitle { color:#374151; font-size:12px; font-weight:500; }
+        #muted { color:#374151; font-size:11px; font-weight:700; }
+        #pageTitle { color:#181e26; font-size:21px; font-weight:700; }
+        #mapTitle { color:#101820; font-size:12px; font-weight:700; }
         #mapView, #image { background:#f0f3f6; border:1px solid #e0e5eb; color:#66717e; }
         QTableWidget, QPlainTextEdit, QLineEdit, QComboBox {
             color:#20262e; background:rgba(255,255,255,220);
@@ -1103,7 +1103,8 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
             selection-color:#111827; padding:6px;
         }
         QHeaderView::section { color:#414a54; background:#f2f4f7; padding:7px; }
-        QStatusBar, #log { color:#56616d; background:#f8fafb; border:0; font-size:10px; }
+        QStatusBar, #log { color:#253140; background:#f8fafb; border:0; font-size:11px; font-weight:700; }
+        QStatusBar QLabel { color:#101820; font-weight:700; }
         #terminal { color:#20262e; background:#f8fafb; border:1px solid #dfe4ea; font-size:11px; }
         #spark { background:#f2f4f7; border:1px solid #dfe4ea; }
         QScrollBar { background:#f3f5f7; }
