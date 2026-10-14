@@ -89,6 +89,7 @@ class Telemetry:
     link_ms: int = 0
     received: dict = None
     flight_state: str = "等待飞控状态"
+    simulated: bool = False
 
 
 class DeviceAdapter(QObject):
@@ -325,6 +326,7 @@ class MapPanel(QFrame):
         self.last_telemetry = None
         self.follow_gps = True
         self.large_window = None
+        self.demo_coordinates = False
         # Keep the original gps_map_node-style fixed 800x800 source ROI.
         # Zoom buttons change the source area, never the widget geometry.
         self.zoom = 1.0
@@ -380,6 +382,8 @@ class MapPanel(QFrame):
             return False, str(exc)
 
     def gps_to_pixel(self, lat: float, lon: float):
+        if self.demo_coordinates:
+            return (int(round((lon - 120.0) / 0.00001)), int(round((36.01 - lat) / 0.00001)))
         if self.map_image is None or self.map_transform is None: return None
         x, y = lon, lat
         if self.map_crs and str(self.map_crs).upper() not in ("EPSG:4326", "OGC:CRS84"):
@@ -559,7 +563,7 @@ class MainPage(QWidget):
 
     def refresh(self):
         t = self.last; now = time.monotonic(); received = t.received or {}
-        def live(key): return self.device.connected and now - received.get(key, 0) < 3
+        def live(key): return (self.device.connected or t.simulated) and now - received.get(key, 0) < 3
         def status(key): return "在线" if live(key) else "无数据 / 超时"
         self.att.set_value(f"R {t.roll:+.1f}°  P {t.pitch:+.1f}°\nY {t.yaw:.1f}°" if live("imu") else "等待姿态数据")
         fcu = f"{t.fcu_lat:.6f}, {t.fcu_lon:.6f}" if live("gps") and t.fcu_gps_valid else "等待有效定位"
@@ -567,15 +571,17 @@ class MainPage(QWidget):
         self.fcu.set_value(f"FCU  {fcu}\n算法  {algo}\nGPS / GeoVINS 实时轨迹对比")
         cameras = []
         for key, panel in (("rgb", self.rgb), ("ir", self.ir)):
-            online = self.device.connected and now-self.images_at.get(key, 0) < 3
+            online = (self.device.connected or t.simulated) and now-self.images_at.get(key, 0) < 3
             if not online: panel.set_online(False)
             cameras.append(f"{key.upper()} {'在线' if online else '无信号'}")
         self.sensor.set_value(f"{' · '.join(cameras)}\nIMU {status('imu')}\nToF {status('range')}")
+        if t.simulated:
+            self.sensor.set_value(f"[模拟] RGB / IR 在线 · 10 Hz\nIMU 在线 · ToF {t.range_m:.1f} m\n演示数据 / 非真实设备")
         state = t.flight_state if live("state") else "飞控状态无数据 / 超时"
         altitude = f"{t.altitude:.1f} m" if live("gps") and t.fcu_gps_valid else "--"
         velocity = f"{t.speed_fcu:.1f} m/s" if live("velocity") else "--"
-        self.speed.set_value(f"{state}\nGPS 海拔 {altitude} · 速度 {velocity}\nSSH {'已连接' if self.device.connected else '未连接'}")
-        self.detail.setPlainText(f"SSH: {'已连接' if self.device.connected else '未连接'}\n飞控: {state}\n数据超过 3 秒未更新显示超时")
+        self.speed.set_value(f"{state}\nGPS 海拔 {altitude} · 速度 {velocity}\n" + ("模拟数据 · 未连接板卡" if t.simulated else f"SSH {'已连接' if self.device.connected else '未连接'}"))
+        self.detail.setPlainText(("模拟仿真：所有数值和图像均为演示数据\n" if t.simulated else "") + f"SSH: {'已连接' if self.device.connected else '未连接'}\n飞控: {state}\n数据超过 3 秒未更新显示超时")
 
     def clear_telemetry(self):
         self.last = Telemetry(); self.last_update = 0; self.images_at.clear(); self.refresh()
@@ -745,12 +751,14 @@ class SettingsDialog(EmblemDialog):
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
-        super().__init__(); self.device = DeviceAdapter(); self.ros_bridge = RosBridge(); self.image_seen = set(); self.setWindowTitle("NAV//STATION  •  Visual Navigation Ground Station"); self.resize(1440, 900); self._build(); self.device.telemetry_changed.connect(self.on_telemetry); self.device.connection_changed.connect(self.on_connection); self.device.log.connect(self.log); self.ros_bridge.telemetry.connect(self.on_telemetry); self.ros_bridge.image.connect(self.on_image); self.ros_bridge.error.connect(self.log)
+        super().__init__(); self.simulating = False; self.device = DeviceAdapter(); self.ros_bridge = RosBridge(); self.image_seen = set(); self.setWindowTitle("NAV//STATION  •  Visual Navigation Ground Station"); self.resize(1440, 900); self._build(); self.device.telemetry_changed.connect(self.on_telemetry); self.device.connection_changed.connect(self.on_connection); self.device.log.connect(self.log); self.ros_bridge.telemetry.connect(self.on_telemetry); self.ros_bridge.image.connect(self.on_image); self.ros_bridge.error.connect(self.log)
 
     def _build(self) -> None:
         root = QWidget(); self.setCentralWidget(root); layout = QHBoxLayout(root); layout.setContentsMargins(0, 0, 0, 0)
         nav = QFrame(); nav.setObjectName("sidebar"); nav.setFixedWidth(210); nv = QVBoxLayout(nav); brand = QLabel("NAV//STATION\nV2.0"); brand.setObjectName("brand"); nv.addWidget(brand)
         self.theme_name, self.language = "light", "zh"
+        self.sim_button = QPushButton("▶  模拟仿真"); self.sim_button.setCheckable(True); self.sim_button.clicked.connect(self.toggle_simulation); nv.addWidget(self.sim_button)
+        self.sim_timer = QTimer(self); self.sim_timer.setInterval(100); self.sim_timer.timeout.connect(self.simulation_tick)
         self.connection = QPushButton("●  CONNECT SSH"); self.connection.clicked.connect(self.toggle_connection); nv.addWidget(self.connection); self.roscore_button = QPushButton("▶  START ROSCORE"); self.roscore_button.clicked.connect(self.start_roscore); nv.addWidget(self.roscore_button); self.nav = QListWidget(); self.nav.setObjectName("nav"); self.nav_labels = ["00  MISSION CONTROL", "01  SENSOR LAB", "02  MAP & ASSETS", "03  POSITIONING", "04  LINK DIAGNOSTICS"]; labels = self.nav_labels
         for label in labels: self.nav.addItem(QListWidgetItem(label))
         self.nav.setCurrentRow(0); nv.addWidget(self.nav); nv.addStretch(); self.system = QLabel("SYSTEM READY\n等待连接真实设备"); self.system.setObjectName("muted"); nv.addWidget(self.system); self.settings_button = QPushButton("⚙  SETTINGS / 设置"); self.settings_button.clicked.connect(self.open_settings); nv.addWidget(self.settings_button); layout.addWidget(nav)
@@ -763,7 +771,97 @@ class MainWindow(QMainWindow):
         self.log_view = QPlainTextEdit(); self.log_view.setReadOnly(True); self.log_view.setFixedHeight(92); self.log_view.setObjectName("log")
         self.statusBar().addPermanentWidget(QLabel("  EVENT STREAM  ")); self.statusBar().addPermanentWidget(self.log_view, 1)
 
+    def toggle_simulation(self, enabled):
+        if enabled:
+            if self.device.connected or self.ros_bridge.started or self.pages[4].terminal.client:
+                self.sim_button.setChecked(False)
+                self.log("请先断开板卡和诊断终端，再开启离线模拟仿真")
+                return
+            self.simulating = True
+            self.sim_started = time.monotonic()
+            self.sim_frame = 0
+            m = self.pages[0].map
+            keys = ("map_image", "map_transform", "map_crs", "fcu_path", "algo_path", "last_fcu", "last_algo", "last_telemetry", "zoom", "follow_gps", "demo_coordinates")
+            self.saved_map = {key: getattr(m, key) for key in keys}
+            # A generated terrain works on fresh clones without GeoTIFF or ROS.
+            rng = np.random.default_rng(42)
+            terrain = np.full((1000, 1600, 3), (156, 177, 143), np.uint8)
+            for y in range(0, 1000, 100):
+                for x in range(0, 1600, 120):
+                    color = tuple(int(v) for v in rng.integers((110, 135, 100), (185, 200, 165)))
+                    cv2.rectangle(terrain, (x+4, y+4), (x+113, y+93), color, -1)
+            cv2.line(terrain, (0, 640), (1600, 360), (195, 211, 224), 90)
+            cv2.line(terrain, (0, 200), (1600, 800), (221, 218, 204), 22)
+            for x in range(120, 1500, 180):
+                cv2.rectangle(terrain, (x, 180), (x+70, 240), (211, 205, 193), -1)
+            m.map_image = terrain; m.map_transform = None; m.map_crs = None
+            m.demo_coordinates = True; m.fcu_path = []; m.algo_path = []
+            m.last_fcu = m.last_algo = m.last_telemetry = None
+            m.follow_gps = False; m.follow_button.setChecked(False); m.follow_button.setText("固定视图")
+            m.zoom_reset()
+            self.sim_button.setText("■  退出模拟仿真")
+            self.system.setText("SIMULATION / 模拟仿真\n所有数据为离线演示")
+            # Leave display windows accessible while preventing board actions.
+            self.sim_disabled = []
+            for root in (self.pages[0].control_window, *self.pages[1:]):
+                for button in root.findChildren(QPushButton):
+                    self.sim_disabled.append((button, button.isEnabled()))
+                    button.setEnabled(False)
+            self.stack.setCurrentIndex(0); self.nav.setCurrentRow(0)
+            self.simulation_tick(); self.sim_timer.start()
+            self.log("模拟仿真已开启：10 Hz 动态姿态、GPS 双轨迹、测距和 RGB/红外演示图像")
+        else:
+            if not self.simulating: return
+            self.sim_timer.stop(); self.simulating = False
+            m = self.pages[0].map
+            for key, value in self.saved_map.items(): setattr(m, key, value)
+            m.follow_button.setChecked(m.follow_gps)
+            m.follow_button.setText("跟随 GPS" if m.follow_gps else "固定视图")
+            m.view.clear()
+            if m.map_image is not None: m.render_map()
+            else: m.view.setText("等待加载地图 / 等待真实 ROS GPS")
+            self.pages[0].clear_telemetry(); self.image_seen.clear()
+            for button, enabled_before in self.sim_disabled: button.setEnabled(enabled_before)
+            self.pages[4].update(Telemetry(), False)
+            self.sim_button.setChecked(False); self.sim_button.setText("▶  模拟仿真")
+            self.system.setText("SYSTEM READY\n等待连接真实设备")
+            self.log("模拟仿真已退出，已恢复原地图和待机状态")
+
+    def simulation_tick(self):
+        if not self.simulating: return
+        elapsed = time.monotonic() - self.sim_started
+        phase = elapsed * 0.24
+        x = 800 + 450 * math.cos(phase)
+        y = 500 + 230 * math.sin(phase)
+        now = time.monotonic()
+        t = Telemetry(
+            roll=12*math.sin(phase*2), pitch=5*math.cos(phase), yaw=(math.degrees(phase)+90)%360,
+            altitude=120+8*math.sin(phase), speed_fcu=12+math.sin(phase), speed_algo=12.1+math.sin(phase),
+            fcu_lat=36.01-y*0.00001, fcu_lon=120+x*0.00001,
+            algo_lat=36.01-(y+3*math.sin(phase*3))*0.00001,
+            algo_lon=120+(x+4*math.cos(phase*2))*0.00001,
+            fcu_gps_valid=True, algo_gps_valid=True, range_m=85+5*math.sin(phase),
+            received={key: now for key in ("gps", "algorithm", "imu", "range", "state", "velocity")},
+            flight_state="[模拟] AUTO · 巡航飞行", simulated=True)
+        self.on_telemetry(t)
+        m = self.pages[0].map
+        # Simulate a moving downward camera over the generated terrain.
+        cx, cy = int(x), int(y)
+        rgb = cv2.resize(m.map_image[cy-100:cy+100, cx-150:cx+150], (640, 360))
+        cv2.putText(rgb, "SIMULATION / RGB", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, .65, (255,255,255), 2)
+        cv2.drawMarker(rgb, (320,180), (255,255,255), cv2.MARKER_CROSS, 30, 1)
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        ir = cv2.cvtColor(cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO), cv2.COLOR_BGR2RGB)
+        cv2.putText(ir, "SIMULATION / IR", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, .65, (255,255,255), 2)
+        for tag, frame, panel in (("rgb", rgb, self.pages[0].rgb), ("ir", ir, self.pages[0].ir)):
+            panel.set_frame(frame); panel.status.setText("● SIMULATED / 模拟")
+            self.pages[0].images_at[tag] = now
+        self.pages[0].refresh()
+        self.pages[4].status.set_value("SIMULATION / 模拟")
+        self.sim_frame += 1
+
     def toggle_connection(self) -> None:
+        if self.simulating: return
         if self.device.connected: self.device.disconnect()
         else: self.device.connect_board("155.155.0.14", "firefly", "firefly")
 
@@ -795,27 +893,34 @@ class MainWindow(QMainWindow):
             self.pages[1].table.setHorizontalHeaderLabels(["SENSOR", "ROS TOPIC", "RATE", "STATUS", "START", "STOP", "TEST"])
 
     def on_connection(self, connected: bool) -> None:
+        if self.simulating and connected: self.toggle_simulation(False)
         if not connected: self.ros_bridge.stop(); self.pages[0].clear_telemetry()
         self.connection.setText("●  DISCONNECT SSH" if connected else "●  CONNECT SSH"); self.system.setText(("SSH ONLINE" if connected else "SYSTEM READY") + "\nClick START ROSCORE for ROS")
 
     def start_roscore(self) -> None:
+        if self.simulating: return
         if not self.device.connected: self.log("请先连接 SSH"); return
         self.device.start_roscore(); QTimer.singleShot(1800, lambda: self.ros_bridge.start(self.device.host))
 
     def on_image(self, tag: str, frame: np.ndarray) -> None:
+        if self.simulating: return
         panel = self.pages[0].rgb if tag == "rgb" else self.pages[0].ir; panel.set_frame(frame); self.pages[0].images_at[tag] = time.monotonic()
         if tag not in self.image_seen:
             self.image_seen.add(tag); self.log(f"{tag.upper()} 图像流正常: {frame.shape[1]} × {frame.shape[0]}")
 
     def load_basemap(self, path: str) -> None:
+        if self.simulating:
+            self.log("请退出模拟仿真后更换真实地图"); return
         ok, details = self.pages[0].map.load_basemap(path)
         if ok: self.log(f"GPS 对比底图已显示到主页面: {details}")
         else: self.log(f"GPS 对比底图加载失败: {details}")
 
     def on_telemetry(self, t: Telemetry) -> None:
+        if self.simulating != t.simulated: return
         self.pages[0].update(t); self.pages[4].update(t, self.device.connected)
 
     def stop_all_sensors(self) -> None:
+        if self.simulating: return
         self.device.start_sensors(False)
         self.ros_bridge.stop()
         self.pages[0].clear_telemetry()
