@@ -476,7 +476,7 @@ class MapPanel(QFrame):
         # Screen-space annotation stays small and anchored while zooming/panning.
         painter = QPainter(displayed)
         painter.setRenderHint(QPainter.Antialiasing)
-        font = painter.font(); font.setPixelSize(12); painter.setFont(font)
+        font = painter.font(); font.setPixelSize(12); font.setBold(True); painter.setFont(font)
         painter.setPen(Qt.NoPen); painter.setBrush(QColor(255, 255, 255, 205))
         bottom = displayed.height() - 12
         painter.drawRoundedRect(QRectF(10, bottom-48, 280, 48), 6, 6)
@@ -564,8 +564,8 @@ class AircraftAttitude(QFrame):
     """Small projected aircraft, driven by the same Euler angles as telemetry."""
     def __init__(self):
         super().__init__()
-        self.setObjectName("metric")
-        self.setFixedSize(170, 120)
+        self.setObjectName("aircraftMini")
+        self.setFixedSize(72, 70)
         self.angles = (0.0, 0.0, 0.0)
         self.valid = False
         # Body coordinates: forward, right, down. Faces form wings/body/tail.
@@ -588,8 +588,10 @@ class AircraftAttitude(QFrame):
         painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
         font = painter.font(); font.setPixelSize(10); painter.setFont(font)
         painter.setPen(QColor("#465364"))
-        painter.drawText(QRectF(0, 7, self.width(), 16), Qt.AlignCenter, "实时姿态" if self.valid else "等待姿态数据")
-        painter.translate(self.width()/2, 73)
+        if not self.valid:
+            painter.drawText(QRectF(0, 0, self.width(), 16), Qt.AlignCenter, "无姿态数据")
+        painter.translate(self.width()/2, 39)
+        painter.scale(0.48, 0.48)
         painter.setPen(QPen(QColor(120,140,160,90), 1))
         painter.drawEllipse(QRectF(-58,-28,116,56))
         painter.drawLine(-66,0,66,0)
@@ -636,11 +638,9 @@ class MainPage(QWidget):
         for panel in (self.att, self.fcu, self.sensor, self.speed):
             panel.setFixedHeight(100)
             table.addWidget(panel)
-        right_group = QHBoxLayout(); right_group.addStretch(); right_group.setSpacing(10)
         self.aircraft = AircraftAttitude()
-        right_group.addWidget(self.aircraft, 0, Qt.AlignTop)
-        right_group.addWidget(self.telemetry_table, 0, Qt.AlignTop)
-        box.addLayout(right_group)
+        self.att.layout().addWidget(self.aircraft)
+        box.addWidget(self.telemetry_table, 0, Qt.AlignRight)
         box.addStretch()
         # Only the actual panels intercept input; empty overlay passes wheel events.
         overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -1050,7 +1050,8 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
     palettes = {"dark": ("#0b111c", "#0e1725", "#101b2a", "#0d1826", "#61dcff"), "light": ("#eef2f6", "#ffffff", "#ffffff", "#f7f9fb", "#16769b"), "blue": ("#071a2d", "#08243d", "#0d2d49", "#0a2238", "#55c8ff")}
     bg, sidebar, panel, field, accent = palettes.get(theme, palettes["dark"])
     app.setStyleSheet(f"""
-    * {{ font-family: 'Segoe UI', 'Microsoft YaHei'; color: #dce8f5; }}
+    * {{ font-family: 'Segoe UI', 'Microsoft YaHei'; color: #dce8f5; font-weight:600; }}
+    #aircraftMini {{ background:transparent; border:0; }}
     QMainWindow, QWidget {{ background: {bg}; }}
     QLabel {{ background:transparent; }} #missionOverlay, #missionTools {{ background:transparent; }} QStatusBar {{ background:#080d16; color:#7e8ca3; }}
     #sidebar {{ background:{sidebar}; border-right:1px solid #1d3047; }} #brand {{ color:{accent}; font-size:18px; font-weight:700; padding:18px 12px; }}
@@ -1068,7 +1069,7 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
 
     if theme == "light":
         app.setStyleSheet(app.styleSheet() + """
-        * { color:#171b21; font-size:12px; }
+        * { color:#171b21; font-size:12px; font-weight:600; }
         QMainWindow, QWidget { background:#ffffff; }
         QLabel, #missionOverlay, #missionTools { background:transparent; }
         #sidebar { background:#fafbfc; border-right:1px solid #e5e7eb; }
@@ -1090,8 +1091,8 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
             border:1px solid rgba(255,255,255,225); border-radius:12px;
         }
         #telemetryRow { background:transparent; border:0; border-bottom:1px solid rgba(100,120,140,55); border-radius:0; }
-        #metricTitle { color:#414a54; font-size:10px; font-weight:400; }
-        #metricValue { color:#111820; font-size:12px; font-weight:400; }
+        #metricTitle { color:#414a54; font-size:10px; font-weight:600; }
+        #metricValue { color:#111820; font-size:12px; font-weight:700; }
         #muted { color:#6c7580; font-size:10px; }
         #pageTitle { color:#181e26; font-size:21px; font-weight:500; }
         #mapTitle { color:#374151; font-size:12px; font-weight:500; }
