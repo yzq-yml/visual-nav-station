@@ -287,14 +287,21 @@ class RosBridge(QObject):
 
 
 class Metric(QFrame):
-    def __init__(self, title: str, value: str = "--", accent: str = "#59d9ff") -> None:
+    def __init__(self, title: str, value: str = "--", accent: str = "#59d9ff", table_row: bool = False) -> None:
         super().__init__()
-        self.setObjectName("metric")
-        layout = QVBoxLayout(self); layout.setContentsMargins(14, 11, 14, 11)
+        self.setObjectName("telemetryRow" if table_row else "metric")
+        layout = QHBoxLayout(self) if table_row else QVBoxLayout(self)
+        layout.setContentsMargins(14, 11, 14, 11)
         label = QLabel(title.upper()); label.setObjectName("metricTitle")
         self.value = QLabel(value); self.value.setObjectName("metricValue")
         self.accent = accent
-        layout.addWidget(label); layout.addWidget(self.value)
+        if table_row:
+            label.setFixedWidth(64)
+            self.value.setWordWrap(True)
+            self.value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            layout.addWidget(label); layout.addWidget(self.value, 1)
+        else:
+            layout.addWidget(label); layout.addWidget(self.value)
 
     def set_value(self, value: str) -> None:
         self.value.setText(value)
@@ -516,18 +523,19 @@ class MainPage(QWidget):
         overlay = QWidget(); overlay.setObjectName("missionOverlay")
         overlay.setAttribute(Qt.WA_TranslucentBackground)
         box = QVBoxLayout(overlay); box.setContentsMargins(18, 58, 18, 18)
-        self.att = Metric("姿态 · ROLL / PITCH / YAW")
-        self.att.setFixedWidth(300)
-        box.addWidget(self.att, 0, Qt.AlignRight)
+        self.telemetry_table = QFrame(); self.telemetry_table.setObjectName("telemetryTable")
+        self.telemetry_table.setFixedWidth(400)
+        table = QVBoxLayout(self.telemetry_table)
+        table.setContentsMargins(0, 0, 0, 0); table.setSpacing(0)
+        self.att = Metric("姿态信息", table_row=True)
+        self.fcu = Metric("导航信息", table_row=True)
+        self.sensor = Metric("传感器状态", table_row=True)
+        self.speed = Metric("飞行信息", table_row=True)
+        for panel in (self.att, self.fcu, self.sensor, self.speed):
+            panel.setFixedHeight(100)
+            table.addWidget(panel)
+        box.addWidget(self.telemetry_table, 0, Qt.AlignRight)
         box.addStretch()
-        panels = QHBoxLayout()
-        self.fcu = Metric("导航信息")
-        self.sensor = Metric("传感器状态")
-        self.speed = Metric("飞行信息")
-        for panel in (self.fcu, self.sensor, self.speed):
-            panel.setFixedHeight(112)
-            panels.addWidget(panel)
-        box.addLayout(panels)
         # Only the actual panels intercept input; empty overlay passes wheel events.
         overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
         layers.addWidget(overlay, 0, 0)
@@ -940,6 +948,8 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
     #sidebar {{ background:{sidebar}; border-right:1px solid #1d3047; }} #brand {{ color:{accent}; font-size:18px; font-weight:700; padding:18px 12px; }}
     #nav {{ background:transparent; border:0; padding:8px; }} #nav::item {{ padding:14px 10px; color:#91a4bb; }} #nav::item:selected {{ background:#15344b; color:#61dcff; border-left:2px solid #61dcff; }}
     QPushButton {{ background:#215575; border:1px solid #448ab4; padding:5px 9px; border-radius:3px; }} QPushButton:hover {{ border-color:#59d9ff; }} #primary {{ background:#0b6f91; border-color:#3abfe7; }}
+    #telemetryTable {{ background:{panel}; border:1px solid #1c3852; border-radius:8px; }}
+    #telemetryRow {{ background:transparent; border:0; border-bottom:1px solid #38536b; }}
     #panel, #metric {{ background:{panel}; border:1px solid #1c3852; border-radius:4px; }} #metricTitle, #muted {{ color:#7e8ca3; font-size:11px; }} #metricValue {{ font-size:18px; font-weight:600; }}
     #pageTitle {{ font-size:27px; font-weight:600; color:#f2f7fb; }} #mapView, #image {{ background:#0a1421; border:1px solid #1d415b; color:#4b7895; }}
     QTableWidget, QPlainTextEdit, QLineEdit, QComboBox {{ background:{field}; border:1px solid #203b55; padding:8px; }} QHeaderView::section {{ background:#15283d; padding:8px; border:0; }}
@@ -965,12 +975,13 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
         QPushButton:disabled { color:#a0a6ae; background:#f5f6f8; border-color:#e7eaee; }
         #primary { background:#edf4fa; color:#20262e; border-color:#b9cddd; }
         #panel { background:#ffffff; border:1px solid #e0e5eb; border-radius:8px; }
-        #metric {
+        #metric, #telemetryTable {
             background:qlineargradient(x1:0,y1:0,x2:0.8,y2:1,
                 stop:0 rgba(255,255,255,195), stop:0.48 rgba(255,255,255,140),
                 stop:1 rgba(235,244,250,165));
             border:1px solid rgba(255,255,255,225); border-radius:12px;
         }
+        #telemetryRow { background:transparent; border:0; border-bottom:1px solid rgba(100,120,140,55); border-radius:0; }
         #metricTitle { color:#414a54; font-size:10px; font-weight:400; }
         #metricValue { color:#111820; font-size:12px; font-weight:400; }
         #muted { color:#6c7580; font-size:10px; }
