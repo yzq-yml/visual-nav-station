@@ -66,14 +66,33 @@ pip install -e .
 nav-station
 ```
 
-## 打包发布
+## Ubuntu 20.04 打包与迁移
 
-QGC 是 C++/Qt 应用，发布出来是安装包或 AppImage/压缩包；本项目先采用同样的用户体验，但使用 Python/Qt 实现。推荐先用 PyInstaller 做可移植目录包，验证稳定后再做安装器：
+推荐完整目录压缩包，包含 Python、Qt、OpenCV、GeoTIFF 库、ROS Python 客户端和界面资源。目标电脑不需要 pip 安装依赖；仍需要同 CPU 架构的 Ubuntu 20.04 桌面环境。打包机须具备这些库及 ROS Noetic 消息包。
 
-- Windows：PowerShell 执行 `./build_windows.ps1`，产物在 `dist/NAVStation/`。
-- Linux：执行 `./build_linux.sh`，产物在 `dist/nav-station/`。
+在当前开发机执行：
 
-发布时把整个 `dist` 目录交给用户，后续可用 Inno Setup（Windows）或 AppImage/DEB（Linux）封装安装、桌面快捷方式和卸载入口。不要把板卡密码写进可执行文件；设备配置应作为 `configs/devices/*.yaml` 或首次启动时导入。
+```bash
+bash build_linux.sh
+```
+
+脚本使用系统 `/usr/bin/python3`，将打包工具安装到项目 `build/tooling`，执行打包和离线自检。输出 `dist/nav-station-2.0.0-ubuntu20.04-x86_64.tar.gz` 及 SHA256 校验文件。
+
+在新电脑上解压，进入 `nav-station` 目录：
+
+```bash
+./nav-station
+# 可选：添加到应用程序菜单（无需 sudo）
+bash install-desktop.sh
+# 可选：检查包内依赖与离线仿真
+QT_QPA_PLATFORM=offscreen ./nav-station --self-test
+```
+
+必须保留整个目录，不能只复制可执行文件。桌面入口引用该目录，安装快捷方式后不要随意移动目录。1.17 GB 的 `jimo.tif` 需单独复制，再在“地图与资产”中选择。实机使用时仍需配置 PC 与板卡的双向网络、板卡 ROS master；包内客户端不替代板卡上的传感器驱动或算法。
+
+构建机的自检覆盖导入、界面资源、地图依赖和仿真；新电脑的桌面驱动、ROS 网络与真实图像需要现场验证。精简 Ubuntu 如缺少图形系统库，按启动报错安装对应 Ubuntu 系统包。
+
+Windows 仍可通过 `build_windows.ps1` 构建便携目录，但不在 Ubuntu 安装包验证范围内。
 
 ## 推荐演进方式
 

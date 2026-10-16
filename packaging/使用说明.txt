@@ -1,0 +1,15 @@
+NAV Station V2.0 / Ubuntu 20.04
+
+1. 将整个压缩包复制到相同 CPU 架构的 Ubuntu 20.04 桌面系统，解压到固定目录。
+2. 在该目录打开终端，执行 ./nav-station 启动。
+3. 可选：执行 bash install-desktop.sh，添加到应用程序菜单；此后不要移动该目录。
+4. 点击“模拟仿真”即可离线检查界面。
+5. 地图文件需要单独复制，在“地图与资产”中选择本机 GeoTIFF。
+6. 实机使用仍需板卡运行 ROS master，并保证 PC 与板卡双向网络连通。
+
+自检：QT_QPA_PLATFORM=offscreen ./nav-station --self-test
+普通 Python 库及 ROS Python 客户端已随目录打包，不需要 pip install。
+请勿只复制 nav-station 可执行文件，必须保留 _internal 等全部内容。
+若精简系统提示缺少 libxcb/libGL 等动态库，请安装 Ubuntu 桌面图形运行库。
+当前包不安装或启动本机 ROS master，也不包含板卡算法和地图数据。
+此包已在构建机自检，新电脑上的图形驱动与实机网络仍需现场验证。

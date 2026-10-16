@@ -57,7 +57,6 @@ except ImportError:
 
 try:
     import rospy
-    from cv_bridge import CvBridge
     from sensor_msgs.msg import CompressedImage, Imu, NavSatFix, Range
     from geometry_msgs.msg import TwistStamped
     from mavros_msgs.msg import State
@@ -216,7 +215,7 @@ class RosBridge(QObject):
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
-        super().__init__(); self.subscribers = []; self.bridge = CvBridge() if rospy else None; self.started = False; self.t = Telemetry(received={})
+        super().__init__(); self.subscribers = []; self.started = False; self.t = Telemetry(received={})
 
     def start(self, board_ip: str) -> None:
         if not rospy: self.error.emit("当前 Python 没有 ROS 环境，请使用 /usr/bin/python3.8 启动"); return
@@ -1114,6 +1113,8 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
 
 def main() -> int:
     """Application entry point used by both the CLI and packaged executable."""
+    self_test = "--self-test" in sys.argv
+    if self_test: os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication(sys.argv)
     app.setApplicationName("NAV//STATION")
     app.setOrganizationName("VisualNav")
@@ -1121,6 +1122,25 @@ def main() -> int:
     window = MainWindow()
     window.apply_settings("light", "zh")
     window.setWindowTitle("NAV//STATION V2.0 · 视觉导航地面站")
+    if self_test:
+        window.show(); app.processEvents()
+        window.toggle_simulation(True); app.processEvents()
+        assert window.pages[0].last.simulated
+        assert not window.pages[0].rgb.image.pixmap().isNull()
+        assert not QPixmap(str(ROOT / "assets" / "tsinghua-emblem.jpg")).isNull()
+        assert rasterio is not None, "GeoTIFF support missing"
+        assert rospy is not None, "ROS client support missing"
+        from rasterio.io import MemoryFile
+        with MemoryFile() as memory:
+            with memory.open(driver="GTiff", width=4, height=4, count=1, dtype="uint8", crs="EPSG:4326", transform=Affine.translation(120, 36)*Affine.scale(.001, -.001)) as dataset:
+                dataset.write(np.ones((1, 4, 4), dtype=np.uint8))
+            with memory.open() as dataset:
+                assert dataset.read(1).sum() == 16
+        projected, _ = transform_coordinates("EPSG:4326", "EPSG:3857", [120], [36])
+        assert 13000000 < projected[0] < 14000000
+        window.toggle_simulation(False); window.close()
+        print("SELF-TEST OK: Qt, OpenCV, GeoTIFF, ROS client, assets, simulation")
+        return 0
     window.show()
     return app.exec_()
 
