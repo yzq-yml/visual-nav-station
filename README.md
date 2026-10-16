@@ -92,7 +92,7 @@ QT_QPA_PLATFORM=offscreen ./nav-station --self-test
 
 构建机的自检覆盖导入、界面资源、地图依赖和仿真；新电脑的桌面驱动、ROS 网络与真实图像需要现场验证。精简 Ubuntu 如缺少图形系统库，按启动报错安装对应 Ubuntu 系统包。
 
-Windows 仍可通过 `build_windows.ps1` 构建便携目录，但不在 Ubuntu 安装包验证范围内。
+Windows 的详细安装、构建、分发和排错步骤见 [Windows 打包说明](packaging/WINDOWS.md)。Windows 脚本生成离线仿真 / SSH 版，不包含实时 ROS 订阅；尚需在 Windows 实机完成构建验收。
 
 ## 推荐演进方式
 

@@ -218,7 +218,7 @@ class RosBridge(QObject):
         super().__init__(); self.subscribers = []; self.started = False; self.t = Telemetry(received={})
 
     def start(self, board_ip: str) -> None:
-        if not rospy: self.error.emit("当前 Python 没有 ROS 环境，请使用 /usr/bin/python3.8 启动"); return
+        if not rospy: self.error.emit("当前版本未包含 ROS 客户端，实时遥测和相机订阅不可用；可使用离线仿真或 Ubuntu 完整版"); return
         if self.started: return
         try:
             import socket
@@ -1129,7 +1129,8 @@ def main() -> int:
         assert not window.pages[0].rgb.image.pixmap().isNull()
         assert not QPixmap(str(ROOT / "assets" / "tsinghua-emblem.jpg")).isNull()
         assert rasterio is not None, "GeoTIFF support missing"
-        assert rospy is not None, "ROS client support missing"
+        if "--require-ros" in sys.argv:
+            assert rospy is not None, "ROS client support missing"
         from rasterio.io import MemoryFile
         with MemoryFile() as memory:
             with memory.open(driver="GTiff", width=4, height=4, count=1, dtype="uint8", crs="EPSG:4326", transform=Affine.translation(120, 36)*Affine.scale(.001, -.001)) as dataset:
@@ -1139,7 +1140,7 @@ def main() -> int:
         projected, _ = transform_coordinates("EPSG:4326", "EPSG:3857", [120], [36])
         assert 13000000 < projected[0] < 14000000
         window.toggle_simulation(False); window.close()
-        print("SELF-TEST OK: Qt, OpenCV, GeoTIFF, ROS client, assets, simulation")
+        print("SELF-TEST OK: Qt, OpenCV, GeoTIFF, assets, simulation; ROS client: " + ("available" if rospy else "not included"))
         return 0
     window.show()
     return app.exec_()

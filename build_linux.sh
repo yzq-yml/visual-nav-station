@@ -22,7 +22,7 @@ export PYTHONPATH="$PWD/build/tooling${PYTHONPATH:+:$PYTHONPATH}"
 cp packaging/install-desktop.sh dist/nav-station/
 cp packaging/使用说明.txt dist/nav-station/
 chmod +x dist/nav-station/install-desktop.sh
-QT_QPA_PLATFORM=offscreen dist/nav-station/nav-station --self-test
+QT_QPA_PLATFORM=offscreen dist/nav-station/nav-station --self-test --require-ros
 archive="nav-station-2.0.0-ubuntu20.04-$(uname -m).tar.gz"
 tar -czf "dist/$archive" -C dist nav-station
 (cd dist && sha256sum "$archive" > "$archive.sha256")

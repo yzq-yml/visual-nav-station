@@ -11,3 +11,5 @@ dist/
 .env.*
 *.pem
 *.key
+
+.venv-windows/
